@@ -311,47 +311,29 @@ specs	: 			{ $$ = NULL; } // Initial case: No specifications
 // End of the %% section. This is it for the syntax of the language.
 %%
 /****************************************************************************/
+// Now, the semantics of the language.
 
-// TODO : comment from here on
-
+// lexing file
 #include "langlex.c"
-
-/* Interface with hash table: saving and restoring states                   */
-
-// The "current" state is defined by
-//  (i) instruction pointers of each process (p->current in global_procs)
-//  (ii) values of global and local variables.
-// To save a state, we copy this information into a wState structure to be
-// stored in the hash table. To restore a state, we copy it back.
-
+// hash table implementation
 #include "hash.c"
+// CRC-32 hash function implementation
 #include "crc32.c"
+
+/* Interface with hash table: saving and restoring states */
 
 wHash *hash;
 
 // The hashtable needs a function to order the states, and here it is.
-int cmp_states (wState* state1, wState* state2)
-	{ return memcmp(state1->memory, state2->memory, state_size); }
-
-// save_state and restore_state are used as arguments of copy_state to decide what to do with the variables of a given state
-void save_state (void **mem, void *ptr, int size)
-	{ memcpy(*mem,ptr,size); *mem += size; }
-
-void restore_state (void **mem, void *ptr, int size)
-	{ memcpy(ptr,*mem,size); *mem += size; }
-
-// This function takes a pointer to a state and whether it should save the current process's memory inside of it, or restore the state's memory inside the process.
-void copy_state (wState *s, void (*copyfn)(void**,void*,int))
+int wStateCmp (wState* state1, wState* state2)
 {
-	void *tmp = s->memory;
-	for (process *p = global_procs; p; p = p->next)
-	{
-		copyfn(&tmp,&(p->current),sizeof(process*));
-		for (var *v = p->locals; v; v = v->next)
-			copyfn(&tmp,&(v->value),sizeof(long));
-	}
-	for (var *v = global_vars; v; v = v->next)
-		copyfn(&tmp,&(v->value),sizeof(long));
+	return memcmp(state1->memory, state2->memory, state_size);
+}
+
+void save_state (void **mem, void *ptr, int size)
+{
+	memcpy(*mem,ptr,size);
+	*mem += size;
 }
 
 // Creation of a new state from the current one, and insertion into the hash table if it is not already visited.
@@ -360,7 +342,25 @@ void add_state ()
 	// generate the new structure to be inserted in the hash table
 	wState *s = malloc(sizeof(wState));
 	s->memory = malloc(state_size);
-	copy_state(s,save_state);
+
+	// Copy the current state into the new structure
+	void *tmp = s->memory;
+	for (process *p = global_procs; p; p = p->next)
+	{
+		// /!\ p->current is a pointer to the current statement, not state !
+		// This is why in the save/restore function there is a difference in the treatment of mem and ptr, and their order matters.
+		//TODO : verify this
+		save_state(&tmp,&(p->current),sizeof(process*));
+		for (var *v = p->locals; v; v = v->next)
+		{
+			save_state(&tmp,&(v->value),sizeof(long));
+		}
+	}
+	for (var *v = global_vars; v; v = v->next)
+	{
+		save_state(&tmp,&(v->value),sizeof(long));
+	}
+
 	s->hash = xcrc32(s->memory,state_size,0xffffffff);
 
 	// check whether state already known, free memory if so
@@ -370,8 +370,25 @@ void add_state ()
 	free(s);
 }
 
-// Restore current state from hashed state
-void restore_state (wState *s) { copy_state(s,restore_state); }
+// Restore current state from hashed state.
+void unsave_state (void **mem, void *ptr, int size)
+{
+	memcpy(ptr,*mem,size);
+	*mem += size;
+}
+
+void restore_state (wState *s)
+{
+	void *tmp = s->memory;
+	for (process *p = global_procs; p; p = p->next)
+	{
+		unsave_state(&tmp,&(p->current),sizeof(process*));
+		for (var *v = p->locals; v; v = v->next)
+			unsave_state(&tmp,&(v->value),sizeof(long));
+	}
+	for (var *v = global_vars; v; v = v->next)
+		unsave_state(&tmp,&(v->value),sizeof(long));
+}
 
 
 /****************************************************************************/
@@ -499,7 +516,7 @@ int main (int argc, char **argv)
 	fclose(yyin);
 
 	// set up hash table with initial state
-	hash = wHashCreate(cmp_states);
+	hash = wHashCreate(wStateCmp);
 	add_state();
 
 	// iteratively explore all reachable states
