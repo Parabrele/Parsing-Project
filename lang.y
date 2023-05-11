@@ -1,7 +1,7 @@
 /***************************************************************************/
 /*
 
-   This file, along with the langlex.c and langlex.l, are extensions of the TP's files found at https://lmf.cnrs.fr/IsaVialard/LangagesFormels.
+   This file, along with langlex.l, are extensions of the TP's files found at https://lmf.cnrs.fr/IsaVialard/LangagesFormels.
 
    This program is our implementation of the level-3 objective, which involves exploring all reachable states and checking them against reachability specifications.
    
@@ -30,28 +30,27 @@ extern int yylineno;
 
 // Function to display error messages during parsing
 // This function is part of the first amelioration mentioned in section 4 of the project description
-void raise_error(char *s)
+void yyerror(char *s)
 {
 	fflush(stdout);
 	fprintf(stderr, "%s at line %d\n",s,yylineno);
 	exit(1);
 }
 
-// A structure for storing variables and their values
+// A structure for storing variables and their values as a linked list
 typedef struct var
 {
-	char *name; // Variable name
+	char *name; // Variable name. Used to identify the variable wherever it is used in the program.
 	long value; // Current value of the variable
 	struct var *next; // Pointer to the next variable in the list
 } var;
 
-// A structure for storing expressions used in assignments, guards, and specs
+// A structure for storing expressions used in assignments, conds, and specs
 typedef struct expr
 {
 	int type; // Operator type
-	struct expr *left, *right; // Left and right subexpressions
-		// For constants and idents, the 'left' field is used
-	int sat; // Reachability of the expression, initialized at 0
+	struct expr *left, *right; // Used to create a tree of expressions. For expressions with only one operand only the left pointer is used.
+	int reached; // Reachability of the expression, initialized at 0. Used only for the reach expression.
 	struct expr *next; // Pointer to the next expression in the list
 } expr;
 
@@ -59,8 +58,8 @@ typedef struct expr
 typedef struct statement
 {
 	int type; // Statement type (e.g. assignment, do, if, break, skip)
-	var *var; // Variable used in the statement (e.g. for assignment)
-	expr *expr; // Expression used in the statement (e.g. for assignment)
+	var *var; // Variables used in the statement (exclusively for assignments)
+	expr *expr; // Expression used in the statement (exclusively for assignments)
 	struct choice *choice; // Pointer to a choice structure, used in do and if statements
 	struct statement *up; // Pointer to the enclosing do or if statement
 	struct statement *next; // Pointer to the next statement in the sequence
@@ -69,15 +68,15 @@ typedef struct statement
 // A structure for storing choices in a do or if statement
 typedef struct choice
 {
-	expr *guard; // Guard expression, if NULL then the choice is ELSE
-	struct statement *block; // Subordinate statements to be executed if the guard is true
+	expr *cond; // cond expression, if NULL then we go to the next choice
+	struct statement *block; // Subordinate statements to be executed if the cond is true
 	struct choice *next; // Pointer to the next choice in the list
 } choice;
 
 // A structure for storing each process in the program
 typedef struct process
 {
-	char *name; // Process name
+	char *name; // Process name. It will be used in the parsing section, when we will have to find how to chain the processes.
 	var *locals; // Local variables
 	struct statement *block; // Pointer to the first statement in the process
 	struct statement *current; // Pointer to the current statement, for computing reachability
@@ -85,10 +84,10 @@ typedef struct process
 } process;
 
 // All data pertaining to the program are accessible from these four vars.
-var     *global_vars; // Pointer to the list of global variables
-var	*local_vars; // Pointer to the list of local variables
-process	*global_procs; // Pointer to the list of processes
-expr	*global_specs; // Pointer to the list of expressions used in reachability specs
+var 	*global_vars; // Pointer to the list of global variables
+var		*local_vars; // Pointer to the list of local variables. Used to initialize the local variables of each process on parsing.
+process	*liveProcs; // Pointer to the list of processes
+expr	*reachableSpecs; // Pointer to the list of expressions used in reachability specs
 
 // To compute all reachable states, we need to know the size of a state in bytes,
 // which includes space for the current statements of each process and for all variables.
@@ -117,11 +116,10 @@ var* search_ident (char *s)
 {
 	var *v = search_ident_in(s,local_vars);
 	if (!v) v = search_ident_in(s,global_vars);
-	if (!v) raise_error("variable not found");
+	if (!v) yyerror("variable not found");
 	return v;
 }
 
-/***************************************************************/
 /* Initialization of useful structures to make the program run */
 
 // Function to create a new process
@@ -146,16 +144,16 @@ expr* init_expr (int type, expr *left, expr *right)
 	e->type = type;
 	e->left = left;
 	e->right = right;
-	e->sat = 0;
+	e->reached = 0;
 	e->next = NULL;
 	return e;
 }
 
 // Function to create a new choice
-choice* init_choice (expr *guard, statement *block)
+choice* init_choice (expr *cond, statement *block)
 {
 	choice *c = malloc(sizeof(choice));
-	c->guard = guard;
+	c->cond = cond;
 	c->block = block;
 	c->next = NULL;
 	return c;
@@ -193,7 +191,7 @@ void up_choices (choice *c, statement *s)
 %}
 /****************************************************************************/
 
-// Use union to define types for terminals and non-terminals
+// I have no clue what this is for. But thanks to the TP for providing it c:
 %union {
 	char *c; // String
 	long i; // Integer
@@ -212,7 +210,7 @@ void up_choices (choice *c, statement *s)
 
 // Define the terminals
 %token VAR SKIP IF FI ELSE DO OD BREAK PROC END REACH
-%token COLONS ARROW ASSIGN EQ AND OR NOT
+%token COND THEN ASSIGN EQ AND OR NOT
 %token <i> INT
 %token <c> IDENT
 
@@ -232,23 +230,10 @@ void up_choices (choice *c, statement *s)
 // This defines the syntax of the language
 /****************************************************************************/
 
-/* Here, we use mid-rule actions provided by Bison.
- * In Bison, a grammar rule consists of a left-hand side (the symbol being defined) and a
- * right-hand side (the sequence of symbols that can derive the left-hand side).
- * Mid-rule actions allow you to perform some actions or computations in the middle of a
- * rule's right-hand side.
- *
- * For example :
- *  After parsing the "procs" symbol, the mid-rule action
-        { global_procs = $3; local_vars = NULL; }
-    is executed. It assigns the value of $3 (the attribute of the "procs" symbol) to
-    global_procs and sets local_vars to NULL.
- * The same goes on for the other mid-rule actions.
- * This means that the first rule of the grammar is start, and this rule starts by the vars then procs and finally specs rules.
-*/
+// This part is extremely inspired by what was done in the TD.
 start	: vars  { global_vars = $1; } // When parsing starts, we first define the variables (if any)
-	  procs { global_procs = $3; local_vars = NULL; } // Then proceed with the processes
-	  specs { global_specs = $5; } // Finally, add specifications (if any) that will have to be checked for reachability
+	  procs { liveProcs = $3; local_vars = NULL; } // Then proceed with the processes
+	  specs { reachableSpecs = $5; } // Finally, add specifications (if any) that will have to be checked for reachability
 
 vars	: { $$ = NULL; } // Initial case: No variables
 	| VAR varlist ';' vars // Variables in the following format VAR ident1, ident2 ... ;
@@ -264,7 +249,7 @@ varlist	: IDENT			{ $$ = init_ident($1); } // List of variable identifiers
 
 // The _s rules are used to define sequences of _. Specifically, a sequence of processes, statements or choices.
 procs	: process // Initial case: one process
-	| procs process		{ ($$ = $2)->next = $1; } // Add more processes
+	| procs process		{ ($$ = $2)->next = $1; } // Add more processes in a chained list
 
 process : PROC IDENT vars	{ local_vars = $3; } // Start with process name and variables
 	  statements END		{ $$ = init_process($2,local_vars,$5); } // End with the process statement
@@ -287,11 +272,15 @@ statement	: IDENT ASSIGN expr //Assignment statement
 choices	: choice // The choice can be one choice statement
 	| choice choices // Or more than one choice statement
 		{ ($$ = $1)->next = $2;
-		  if ($1->guard == NULL && $2 != NULL)
-			raise_error("The ELSE statement must be last choice in DO/IF"); }
-
-choice	: COLONS expr ARROW statements	{ $$ = init_choice($2,$4); } // Choice with guard
-	| COLONS ELSE ARROW statements	{ $$ = init_choice(NULL,$4); } // Choice without guard. They are the else statements.
+		  // if there is no cond specified, then this is an ELSE case and it must be the last choice
+		  if ($1->cond == NULL && $2 != NULL)
+			yyerror("The ELSE statement must be the last choice in DO/IF");
+		}
+/* Choice syntax :
+ * :: condition -> block
+*/
+choice	: COND expr THEN statements	{ $$ = init_choice($2,$4); } // Choice with cond
+	| COND ELSE THEN statements	{ $$ = init_choice(NULL,$4); } // Choice without cond. They are the else statements.
 
 // Makes an expression tree. Expressions are made of arithmetic and boolean operators applied to variables and constants.
 expr	: IDENT		{ $$ = init_expr(IDENT,(expr*)search_ident($1),NULL); } // Variable
@@ -299,7 +288,7 @@ expr	: IDENT		{ $$ = init_expr(IDENT,(expr*)search_ident($1),NULL); } // Variabl
 	| expr '+' expr	{ $$ = init_expr('+',$1,$3); } // Add expression
 	| expr '-' expr	{ $$ = init_expr('-',$1,$3); } // Subtraction expression
 	| expr '*' expr	{ $$ = init_expr('*',$1,$3); } // Multiplication expression
-	| expr '<' expr	{ $$ = init_expr('>',$3,$1); } // Less than expression
+	| expr '<' expr	{ $$ = init_expr('<',$1,$3); } // Less than expression
 	| expr '>' expr	{ $$ = init_expr('>',$1,$3); } // Greater than expression
 	| expr EQ expr	{ $$ = init_expr(EQ,$1,$3); } // Equality expression
 	| NOT expr		{ $$ = init_expr(NOT,$2,NULL); } // Negative expression
@@ -351,11 +340,10 @@ void add_current_state ()
 
 	// Copy the current state into the new structure
 	void *tmp = s->memory;
-	for (process *p = global_procs; p; p = p->next)
+	for (process *p = liveProcs; p; p = p->next)
 	{
 		// /!\ p->current is a pointer to the current statement, not state !
 		// This is why in the save/restore function there is a difference in the treatment of mem and ptr, and their order matters.
-		//TODO : verify this
 		save_state(&tmp,&(p->current),sizeof(process*));
 		for (var *v = p->locals; v; v = v->next)
 		{
@@ -367,7 +355,7 @@ void add_current_state ()
 		save_state(&tmp,&(v->value),sizeof(long));
 	}
 
-	s->hash = xcrc32(s->memory,state_size,0xffffffff);
+	s->hash = xcrc32(s->memory,state_size,0x5F5E125); // just a random prime number
 
 	// check whether state already known, free memory if so
 	wState *t = wHashInsert(hash,s);
@@ -386,7 +374,7 @@ void save_inverse (void **mem, void *ptr, int size)
 void restore_state (wState *s)
 {
 	void *tmp = s->memory;
-	for (process *p = global_procs; p; p = p->next)
+	for (process *p = liveProcs; p; p = p->next)
 	{
 		save_inverse(&tmp,&(p->current),sizeof(process*));
 		for (var *v = p->locals; v; v = v->next)
@@ -396,7 +384,7 @@ void restore_state (wState *s)
 		save_inverse(&tmp,&(v->value),sizeof(long));
 }
 
-// evaluate an arithmetic expression, used in assign/guard/spec.
+// evaluate an arithmetic expression, used in assign/cond/spec.
 int eval_expr (expr *e)
 {
 	switch (e->type)
@@ -405,6 +393,7 @@ int eval_expr (expr *e)
 		case AND: return eval_expr(e->left) && eval_expr(e->right);
 		case NOT: return !eval_expr(e->left);
 		case EQ: return eval_expr(e->left) == eval_expr(e->right);
+		case '<': return eval_expr(e->left) < eval_expr(e->right);
 		case '>': return eval_expr(e->left) > eval_expr(e->right);
 		case '+': return eval_expr(e->left) + eval_expr(e->right);
 		case '*': return eval_expr(e->left) * eval_expr(e->right);
@@ -415,7 +404,8 @@ int eval_expr (expr *e)
 }
 
 // Find the next statement to execute in the process p, and update p->current accordingly.
-void to_next (process *p)
+// If there is no next statement, p->current is set to NULL and the process is terminated.
+void next_statement (process *p)
 {
 	// find nearest containing block with a successor
 	while (p->current && !p->current->next) p->current = p->current->up;
@@ -425,25 +415,8 @@ void to_next (process *p)
 	if (!p->current) return;
 	// if DO, go to first statement in DO
 	if (p->current->type == DO) return;
-	// if IF, go to first statement in satisfied guard
+	// if IF, go to first statement in satisfied cond
 	p->current = p->current->next;
-}
-
-// for DO/IF, identify all satisfied guards and go into them
-void do_choices (process *p)
-{
-	int els = 1;	// can take ELSE branch unless another guard is true
-
-	for (choice *c = p->current->choice; c; c = c->next)
-	{
-		// if there is no guard or the guard is evaluated to false, or if we already took another branch, skip
-		if (!c->guard && !els) continue;
-		if (c->guard && !eval_expr(c->guard)) continue;
-
-		p->current = c->block;
-		add_current_state();
-		els = 0;
-	}
 }
 
 // given a reachable state, check for satisfied specs and compute successors states (also reachable) to be explored later by adding them to the hash
@@ -451,11 +424,11 @@ void explore (wState *s)
 {
 	// restore s as the current state and check the specs satisfied
 	restore_state(s);
-	for (expr *spec = global_specs; spec; spec = spec->next)
-		if (eval_expr(spec)) spec->sat = 1;
+	for (expr *spec = reachableSpecs; spec; spec = spec->next)
+		if (eval_expr(spec)) spec->reached = 1;
 
-	// explore successors in all processes, and save them to hash
-	for (process *p = global_procs; p; p = p->next)
+	// explore successor states in all processes, and save them to hash
+	for (process *p = liveProcs; p; p = p->next)
 	{
 		// restore s as the current state as it may have been modified by another itteration of the loop
 		restore_state(s);
@@ -463,20 +436,24 @@ void explore (wState *s)
 		// if p is terminated, skip
 		if (!p->current) continue;
 
+		// We simply do what the current statement wants us to do and call the add_current_state function to save the state.
+		// That way, if the statement changed the state in any way, it will be a reachable state we will have to explore it if not already done.
 		switch (p->current->type)
 		{
-			// ASSIGN : evaluate the expression and go to next statement and execute the SKIP case too (there is no break)
+			// ASSIGN : evaluate the expression and go to next statement
 			case ASSIGN:
 				p->current->var->value = eval_expr(p->current->expr);
+				next_statement(p);
+				add_current_state();
+				break;
 			// SKIP : go to next statement and add the state to the hash
 			case SKIP:
-				to_next(p);
+				next_statement(p);
 				add_current_state();
 				break;
 			// BREAK : find nearest including DO structure, and go out of it. If there is no DO structure, p is terminated.
 			case BREAK:
 				// find nearest including DO structure
-				// TODO : do_break() function. See if this did not break everything.
 				while (p->current && p->current->type != DO)
 					p->current = p->current->up;
 
@@ -486,23 +463,36 @@ void explore (wState *s)
 				// otherwise, get out of the DO through 'next' or 'up' statement
 				if (p->current->next)
 					{ p->current = p->current->next; }
-				else
-					{ p->current = p->current->up; to_next(p); } 
+				else {
+					p->current = p->current->up;
+					next_statement(p);
+				}
 				}
 				add_current_state();
 				break;
 			// IF/DO : same as BREAK but we have to go through all possible choices, and we don't add the state to the hash here.
 			// This is the only source of non-determinism in the program.
+			// The non determinism comes from the fact that guards values might change based on the order the processes are executed.
+			// Note : this is also why before every process in this loop, we restore the state to the one we are currently exploring.
+			//		  This way, all possible order of execution between the processes are explored.
 			case IF:
 			case DO:
-				//TODO : same as do_break
-				do_choices(p);
+				int els = 1;	// always takes the ELSE branch unless another cond is true
+
+				for (choice *c = p->current->choice; c; c = c->next)
+				{
+					// if there is no cond or the cond is evaluated to false, or if we already took another branch, skip
+					if (!c->cond && !els) continue;
+					if (c->cond && !eval_expr(c->cond)) continue;
+
+					p->current = c->block;
+					add_current_state();
+					els = 0;
+				}
 				break;
 		}
 	}
 }
-
-/****************************************************************************/
 
 int main (int argc, char **argv)
 {
@@ -511,9 +501,9 @@ int main (int argc, char **argv)
 	int i;
 
 	// parse the program
-	if (argc <= 1) raise_error("please specify a file name");
+	if (argc <= 1) yyerror("please specify a file name");
 	yyin = fopen(argv[1],"r");
-	if (!yyin) raise_error("file not found");
+	if (!yyin) yyerror("invalid file name");
 	if (yyparse()) exit(1);
 	fclose(yyin);
 
@@ -525,8 +515,8 @@ int main (int argc, char **argv)
 	// Given a state, explore it and add all its successors to be explored later.
 	while ((s = wHashPop(hash))) explore(s);
 
-	// tell whether specs were reached or not. As spec->sat is set to 1 when satisfied, and never reset to 0, we can just check this value.
-	for (i = 1, spec = global_specs; spec; i++, spec = spec->next)
-		printf("property #%d is %sreachable\n",i,
-			(spec->sat)? "" : "not ");
+	// tell whether specs were reached or not. As spec->reached is set to 1 when satisfied, and never reset to 0, we can just check this value.
+	for (i = 1, spec = reachableSpecs; spec; i++, spec = spec->next)
+		printf("specification n°%d is %sreachable\n",i,
+			(spec->reached)? "" : "not ");
 }

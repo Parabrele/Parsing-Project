@@ -1,28 +1,32 @@
-//   This file, along with the langlex.c and lang.y, are extensions of the TP's files found at https://lmf.cnrs.fr/IsaVialard/LangagesFormels.
+/*   This file, along with the lang.y, are extensions of the TP's files found at https://lmf.cnrs.fr/IsaVialard/LangagesFormels. */
 %option noyywrap
 %option yylineno
 
 %%
 
 "var"	{ return VAR; }
+
 "proc"	{ return PROC; }
 "end"	{ return END; }
-"do"	{ return DO; }
-"od"	{ return OD; }
+
 "if"	{ return IF; }
 "fi"	{ return FI; }
+"do"	{ return DO; }
+"od"	{ return OD; }
+"::"	{ return COND; }
+"->"	{ return THEN; }
+
+"skip"	{ return SKIP; }
 "else"	{ return ELSE; }
 "break"	{ return BREAK; }
+
 "reach"	{ return REACH; }
-"skip"	{ return SKIP; }
 
 ":="	{ return ASSIGN; }
 "||"	{ return OR; }
 "&&"	{ return AND; }
 "=="	{ return EQ; }
-"!"	{ return NOT; }
-"::"	{ return COLONS; }
-"->"	{ return ARROW; }
+"!"	    { return NOT; }
 
 \/\/.*\n	{ }
 
