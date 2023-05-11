@@ -1,3 +1,5 @@
+# Parsing Project
+
 This is our implementation of the third level of the parsing project.
 
 The files 'crc32.c' and 'hash.c' are those provided in the project description.
