@@ -1,0 +1,11 @@
+var c,d;
+
+proc shit
+    do
+    :: c==10 -> break
+    :: else -> c := c +1; d := 1
+    od
+end
+
+reach (c == 0) && (d == 1 ) //not reachable
+reach (c == 10)  && (d == 1) //reachable

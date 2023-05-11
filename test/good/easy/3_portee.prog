@@ -1,0 +1,10 @@
+var a;
+
+proc p
+    var b;
+    a := 1;
+    b := 2
+end
+
+reach a //reachable
+reach !a //reachable

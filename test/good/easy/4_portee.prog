@@ -1,0 +1,8 @@
+var a;
+
+proc p
+    var a;
+    a := 1
+end
+
+reach a //not reachable

@@ -1,0 +1,13 @@
+// Please note that this program is a simple infinite lopp.
+// However, as the goal is not to execute the code, but to find all reachable states.
+// So the infinite loop this is not a problem here, as the state never changes.
+// See test/bad/4_infinite_loop.prog for an example of a real infinite loop that is not under the subject's hypothesis of a "small" number of possible states.
+
+proc p
+    var a;
+    do
+    :: 1 -> a := 0
+    od
+end
+
+reach 1 // reachable

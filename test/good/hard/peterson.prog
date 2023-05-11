@@ -41,6 +41,6 @@ proc p1
     od
 end
 
-reach	c == 1	// accessible
-reach	c == 2	// accessible
-reach	c == 3	// non accessible
+reach	c == 1	// reachable
+reach	c == 2	// reachable
+reach	c == 3	// not reachable

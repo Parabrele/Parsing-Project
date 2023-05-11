@@ -1,0 +1,11 @@
+// This is a good comment.
+
+/* This is not a good comment. */
+
+/ Neither is this.
+
+Nor this.
+
+proc p
+    skip
+end

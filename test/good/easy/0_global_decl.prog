@@ -1,0 +1,13 @@
+// this is a comment. Hello, I'm a comment.
+var a;
+var a;
+var a, a;
+
+proc p
+    skip
+end
+
+proc p
+    var a;
+    skip
+end

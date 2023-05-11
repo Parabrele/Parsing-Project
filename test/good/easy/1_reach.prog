@@ -1,0 +1,9 @@
+// this is a comment. Hello, I'm a comment.
+var a;
+
+proc p
+    skip
+end
+
+reach 1 //reachable
+reach a //not reachable (all variables are initialized to 0)

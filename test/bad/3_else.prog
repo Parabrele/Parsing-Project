@@ -1,0 +1,16 @@
+var a;
+
+proc p
+    if
+    :: 0 -> a := 1
+    :: 1 -> a := 2
+    :: 1 -> a := 3
+    :: else -> a := 4
+    :: else -> skip
+    fi
+end
+
+reach a == 1 //not reachable
+reach a == 2 //reachable
+reach a == 3 //reachable
+reach a == 4 //not reachable

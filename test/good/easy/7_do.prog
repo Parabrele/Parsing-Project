@@ -1,0 +1,15 @@
+var a;
+
+proc p
+    do
+    :: a == 0 ->
+        a := a + 1
+    :: a == 1 ->
+        a := a + 1
+    :: else -> break
+    od
+end
+
+reach a == 1 //reachable
+reach a == 2 //reachable
+reach a == 4 //not reachable

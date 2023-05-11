@@ -1,0 +1,12 @@
+// CAREFUL !!! Running this program will start an infinite loop !!!
+// It is just an example of how to not use the code !
+
+var a;
+
+proc p
+    do
+    :: 1 -> a := a + 1
+    od
+end
+
+reach a // reachable

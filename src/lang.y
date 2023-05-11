@@ -172,18 +172,18 @@ statement* init_statement (int type, var *var, expr *expr, choice *choice)
 	return s;
 }
 
-// Function to set the "up" pointer of statements inside a DO/IF block
-// It follows the chain of statements in one direction of the block and sets the
-// of each statement to the enclosing DO/IF statement "up" pointer
-void up_statement (statement *block, statement *s)
+// This function is used to go back to the beggining of a statement block in a do or if.
+// It follows the chain of statements and assign to each of them the pointer to the first statement.
+// See semantic described in the 'next_statement' function, and the parsing behavior in the 'statement' rule for further information.
+void set_up_statement (statement *block, statement *s)
 {
 	while (block) { block->up = s; block = block->next; }
 }
 
 // Function to set the "up" pointer of choices inside a DO/IF block
-void up_choices (choice *c, statement *s)
+void set_up_choices (choice *c, statement *s)
 {
-	while (c) { up_statement(c->block,s); c = c->next; }
+	while (c) { set_up_statement(c->block,s); c = c->next; }
 }
 
 /****************************************************************************/
@@ -260,10 +260,11 @@ statements	: statement // The statement can be alone
 // Makes a new statement with the given type, variable, expression and choice
 statement	: IDENT ASSIGN expr //Assignment statement
 		{ $$ = init_statement(ASSIGN,search_ident($1),$3,NULL); }
+	// See the semantic described in the 'next_statement' function to understand the following lines
 	| DO choices OD //DO clause
-		{ $$ = init_statement(DO,NULL,NULL,$2); up_choices($2,$$); }
+		{ $$ = init_statement(DO,NULL,NULL,$2); set_up_choices($2,$$); }
 	| IF choices FI //IF clause
-		{ $$ = init_statement(IF,NULL,NULL,$2); up_choices($2,$$); }
+		{ $$ = init_statement(IF,NULL,NULL,$2); set_up_choices($2,$$); }
 	| BREAK //Break clause
 		{ $$ = init_statement(BREAK,NULL,NULL,NULL); }
 	| SKIP //Skip clause
@@ -407,15 +408,25 @@ int eval_expr (expr *e)
 // If there is no next statement, p->current is set to NULL and the process is terminated.
 void next_statement (process *p)
 {
-	// find nearest containing block with a successor
-	while (p->current && !p->current->next) p->current = p->current->up;
+	/*
+	 * If the current statement has a successor, simply go to it.
+	 * Otherwise, go to the up statement.
+	 * 		If it is null, it means that we broke a process, and said process is terminated.
+	 * 		Otherwise, if it was a DO, we want to do the do again, so we are happy with it being the current statement.
+	 * 		Otherwise, we go up the if chain until we find either an if that has a successor statement, a do, or we reach the top.
+	*/
 
-	// p->current is now NULL/DO/IF
+	//REMONTER LES IF MAIS PAS LES DO !!!
+	while (p->current && !p->current->next && p->current->type != DO) {
+		p->current = p->current->up;
+	};
+	
+	// p->current is now NULL/DO/other
 	// if NULL, p is terminated
 	if (!p->current) return;
-	// if DO, go to first statement in DO
+	// if DO, then do it again
 	if (p->current->type == DO) return;
-	// if IF, go to first statement in satisfied cond
+	// if we just exited an IF, or simply there is a next statement, go to it
 	p->current = p->current->next;
 }
 
@@ -435,7 +446,6 @@ void explore (wState *s)
 
 		// if p is terminated, skip
 		if (!p->current) continue;
-
 		// We simply do what the current statement wants us to do and call the add_current_state function to save the state.
 		// That way, if the statement changed the state in any way, it will be a reachable state we will have to explore it if not already done.
 		switch (p->current->type)
@@ -477,17 +487,19 @@ void explore (wState *s)
 			//		  This way, all possible order of execution between the processes are explored.
 			case IF:
 			case DO:
-				int els = 1;	// always takes the ELSE branch unless another cond is true
+				int esle = 1;	// always takes the ELSE branch unless another cond is true
 
+				// This loop will execute every choice whose cond is evaluated to true.
 				for (choice *c = p->current->choice; c; c = c->next)
 				{
-					// if there is no cond or the cond is evaluated to false, or if we already took another branch, skip
-					if (!c->cond && !els) continue;
+					// if there is no condition and this is not an ELSE, then skip.
+					if (!c->cond && !esle) continue;
+					// Otherwise, if there is a condition and it is not satisfied, skip.
 					if (c->cond && !eval_expr(c->cond)) continue;
-
+					// Otherwise, the condition is satisfied and we remember that we want to explore the current block, but not the else case.
 					p->current = c->block;
 					add_current_state();
-					els = 0;
+					esle = 0;
 				}
 				break;
 		}
