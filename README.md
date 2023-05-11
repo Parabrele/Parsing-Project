@@ -1,4 +1,5 @@
 # Parsing Project
+-----
 
 This is our implementation of the third level of the parsing project.
 
@@ -10,15 +11,21 @@ The language is defined in the subject, the lexer is in 'langlex.l' and the pars
 There are a few test programs in the test files, containing valid and invalid programs. They go from very basic just to see if the lexer and parser have the intended behavior, to more complex programs that test subtilities of both the language and reachability.
 The hardest tests we had to pass were those using a do, as it made finding the next statement to execute not trivial.
 
+-----
+
 To run a test :
 
 if not already done, run
-   `make langlex.c
-    make lang`
+
+    make langlex.c
+    make lang
+
 in the `src` directory.
 
 then, outside of the `src` directory, run :
-    `./src/lang test/<test_file_path>`
+
+    ./src/lang test/<test_file_path>
 
 or inside the `src` directory :
-    `./lang ../test/<test_file_path>`
+    
+    ./lang ../test/<test_file_path>
