@@ -11,10 +11,14 @@ There are a few test programs in the test files, containing valid and invalid pr
 The hardest tests we had to pass were those using a do, as it made finding the next statement to execute not trivial.
 
 To run a test :
-    if not already done, run 'make langlex.c' then 'make lang' in the 'src' directory.
 
-    then, outside of the 'src' directory, run :
-        './src/lang test/<test_file_path>'
+if not already done, run
+   `make langlex.c
+    make lang`
+in the `src` directory.
 
-    or inside the 'src' directory :
-        './lang ../test/<test_file_path>'
+then, outside of the `src` directory, run :
+    `./src/lang test/<test_file_path>`
+
+or inside the `src` directory :
+    `./lang ../test/<test_file_path>`
