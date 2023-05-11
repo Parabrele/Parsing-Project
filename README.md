@@ -13,7 +13,7 @@ The hardest tests we had to pass were those using a do, as it made finding the n
 
 -----
 
-To run a test :
+### To run a test :
 
 if not already done, run
 
