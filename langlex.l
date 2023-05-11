@@ -1,4 +1,4 @@
-//   This file, along with the langlex.c and lang.y, are extensions of the TP's files.
+//   This file, along with the langlex.c and lang.y, are extensions of the TP's files found at https://lmf.cnrs.fr/IsaVialard/LangagesFormels.
 %option noyywrap
 %option yylineno
 
