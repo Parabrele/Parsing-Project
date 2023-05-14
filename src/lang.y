@@ -481,8 +481,9 @@ void explore (wState *s)
 				add_current_state();
 				break;
 			// IF/DO : same as BREAK but we have to go through all possible choices, and we don't add the state to the hash here.
-			// This is the only source of non-determinism in the program.
-			// The non determinism comes from the fact that guards values might change based on the order the processes are executed.
+			// This is the only source of non-determinism in the program along with the process loop.
+			// The non determinism comes from the fact that guards values might change based on the order the processes are executed,
+			// and if several are true, we can choose any of them. The other global variables values might also be altered by the order.
 			// Note : this is also why before every process in this loop, we restore the state to the one we are currently exploring.
 			//		  This way, all possible order of execution between the processes are explored.
 			case IF:
