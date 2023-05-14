@@ -1,0 +1,44 @@
+var a, b, c, d;
+
+proc p
+    do
+    :: 1 ->
+        a := a + 1;
+        do // nested do
+        :: b < 10 ->
+            b := b + 1;
+
+            if // nested if
+            :: b < 5 ->
+                d := 0;
+                do // nested do
+                :: d < 10 ->
+                    c := c + 1;
+                    d := d + 1
+                :: else ->
+                    break
+                od
+            :: else ->
+                skip
+            fi
+        :: else ->
+            break
+        od;
+
+        break
+    od
+end
+
+reach a == 1 //reachable
+reach a == 2 //not reachable
+
+reach b == 1 //reachable
+reach b == 2 //reachable
+reach b == 10//reachable
+reach b == 11//not reachable
+
+reach c == 1 //reachable
+reach c == 10//reachable
+reach c == 11//reachable
+reach c == 40//reachable
+reach c == 41//not reachable
